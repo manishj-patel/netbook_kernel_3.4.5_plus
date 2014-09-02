@@ -8,4 +8,4 @@ config MALI
 	  This enables the generation of mali.ko and ump.ko.
 
 source "drivers/gpu/mali/mali/Kconfig"
-source "drivers/gpu/ump/Kconfig"
+source "drivers/gpu/mali/ump/Kconfig"
