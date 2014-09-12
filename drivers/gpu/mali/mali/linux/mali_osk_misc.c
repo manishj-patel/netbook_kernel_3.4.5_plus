@@ -23,7 +23,6 @@
 #if !defined(CONFIG_MALI_QUIET)
 void _mali_osk_dbgmsg(const char *fmt, ...)
 {
-	printk("Manish | %s() +%d \n", __func__, __LINE__);
 	va_list args;
 	va_start(args, fmt);
 	vprintk(fmt, args);
