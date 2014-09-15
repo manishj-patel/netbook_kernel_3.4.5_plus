@@ -593,24 +593,6 @@ static struct platform_device *wmt_devices[] __initdata = {
 	&wm8880_device_pwm,
 };
 
-#ifdef CONFIG_VT1603_IOCTRL_SPI
-static struct wmt_spi_slave vt1603_codec_info = {
-	.dma_en        = SPI_DMA_DISABLE,
-	.bits_per_word = 8,
-};
-static struct spi_board_info vt1603_spi_board_info[] __initdata = {
-	{
-		.modalias               = "vt1609",
-		.bus_num                = 0,
-		.chip_select            = 0,
-		.max_speed_hz           = 12000000,
-		.irq                    = -1,
-		.mode = SPI_CLK_MODE3,
-		.controller_data = &vt1603_codec_info,
-	},
-};
-#endif
-
 
 static struct i2c_board_info cp2682_i2c_dev[] __initdata = {
 	{I2C_BOARD_INFO("cp2682", (0x2c)),},
@@ -668,9 +650,6 @@ static int __init wmt_init(void)
 #endif
 #ifdef CONFIG_WMT_NEWSPI1_SUPPORT
 	spi_register_board_info(wmt_spi1_board_info, ARRAY_SIZE(wmt_spi1_board_info));
-#endif
-#ifdef CONFIG_VT1603_IOCTRL_SPI
-	spi_register_board_info(vt1603_spi_board_info, ARRAY_SIZE(vt1603_spi_board_info));
 #endif
 
 #ifdef CONFIG_I2S_CODEC_WM8994

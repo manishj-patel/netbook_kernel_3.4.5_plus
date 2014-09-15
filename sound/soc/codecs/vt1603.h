@@ -57,6 +57,9 @@
 #define VT1603_R12  0x12
 #define VT1603_R13  0x13
 #define VT1603_R15  0x15
+#define VT1603_R16  0x16
+#define VT1603_R17  0x17
+#define VT1603_R18  0x18
 #define VT1603_R19  0x19
 #define VT1603_R1b  0x1b
 #define VT1603_R1c  0x1c
@@ -72,6 +75,7 @@
 #define VT1603_R2b  0x2b
 #define VT1603_R2c  0x2c
 #define VT1603_R2d  0x2d
+#define VT1603_R3f  0x3f
 #define VT1603_R40  0x40
 #define VT1603_R41  0x41
 #define VT1603_R42  0x42
@@ -115,5 +119,7 @@
 #define VT1603_R95  0x95
 #define VT1603_R96  0x96
 #define VT1603_R97  0x97
+#define VT1603_RC2  0xc2
+#define VT1603_NULL 0xEF
 
 #endif

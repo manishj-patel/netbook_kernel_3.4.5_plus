@@ -22,13 +22,13 @@
 --*/
 
 
-#ifndef __WMT_PCM_H__
-#define __WMT_PCM_H__
+#ifndef __OMAP_PCM_H__
+#define __OMAP_PCM_H__
 
 struct wmt_pcm_dma_data {
-	char          *name;     /* stream identifier */
-	int           dma_req;   /* DMA request line */
-	unsigned long port_addr; /* transmit/receive register */
+	char		*name;		/* stream identifier */
+	int		dma_req;	/* DMA request line */
+	unsigned long	port_addr;	/* transmit/receive register */
 	struct dma_device_cfg_s *dma_cfg;
 };
 
@@ -38,7 +38,6 @@ typedef struct WFDStrmInfo {
 	unsigned int buf_offset;
 } WFDStrmInfo_t;
 
-extern void wmt_pcm_wfd_start(void);
 extern unsigned int wmt_pcm_wfd_get_buf(void);
 extern void wmt_pcm_wfd_stop(void);
 extern int wmt_pcm_wfd_get_strm(WFDStrmInfo_t *info);
