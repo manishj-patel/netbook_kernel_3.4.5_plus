@@ -35,9 +35,14 @@
 #include <asm/dma.h>
 #include "wmt-pcm.h"
 #include "wmt-soc.h"
+#include "wmt_swmixer.h"
 
 #define NULL_DMA                ((dmach_t)(-1))
+//#define WMT_FMT_TRANS_BY_SW	1
 
+/*
+ * Debug
+ */
 #define AUDIO_NAME "WMT_PCM"
 //#define WMT_PCM_DEBUG 1
 //#define WMT_PCM_DEBUG_DETAIL 1
@@ -63,20 +68,26 @@
 #define warn(format, arg...) \
 	printk(KERN_WARNING AUDIO_NAME ": " format "\n" , ## arg)
 
+
+#ifdef WMT_FMT_TRANS_BY_SW
+static struct snd_dma_buffer dump_buf[1];/*Used to dump mono data*/
+#endif
+
 static const struct snd_pcm_hardware wmt_pcm_hardware = {
-	.info           = SNDRV_PCM_INFO_MMAP |
-	                  SNDRV_PCM_INFO_MMAP_VALID |
-	                  SNDRV_PCM_INFO_INTERLEAVED |
-	                  SNDRV_PCM_INFO_PAUSE |
-	                  SNDRV_PCM_INFO_RESUME,
-	.formats        = SNDRV_PCM_FMTBIT_S16_LE,
-	.rate_min       = 8000,
-	.rate_max       = 96000,
-	.period_bytes_min = 32,
-	.period_bytes_max = 4 * 1024,
-	.periods_min      = 2,
-	.periods_max      = 128,
-	.buffer_bytes_max = 64 * 1024,
+	.info			= SNDRV_PCM_INFO_MMAP |
+				  SNDRV_PCM_INFO_MMAP_VALID |
+				  SNDRV_PCM_INFO_INTERLEAVED |
+				  SNDRV_PCM_INFO_PAUSE |
+				  SNDRV_PCM_INFO_RESUME,
+	.formats		= SNDRV_PCM_FMTBIT_S16_LE,
+	.rate_min		= 8000,
+	.rate_max		= 96000,
+	.period_bytes_min	= 4 * 1024,
+	.period_bytes_max	= 4 * 1024,
+	.periods_min		= 1,
+	.periods_max		= 16,
+	.buffer_bytes_max	= 64 * 1024,
+	.fifo_size		= 32,
 };
 
 struct wmt_runtime_data {
@@ -87,7 +98,6 @@ struct wmt_runtime_data {
 };
 
 struct snd_wfd_buffer {
-	struct device *dev;
 	unsigned char *area;	/* virtual pointer */
 	dma_addr_t addr;		/* physical address */
 	size_t bytes;			/* buffer size in bytes */
@@ -98,46 +108,30 @@ struct snd_wfd_buffer {
 };
 static struct snd_wfd_buffer wfd_audbuf;
 
+
 static int audio_dma_free(struct audio_stream_a *s);
 
-dmach_t pcm_out_dmach = 0xFF;
-struct dma_device_cfg_s *pcm_out_dma_cfg = NULL;
+extern char wmt_dai_name[80];
 
-void wmt_pcm_wfd_start(void)
-{
-	/* allocate buffer for WFD support */
-	wfd_audbuf.area = dma_alloc_writecombine(wfd_audbuf.dev, wfd_audbuf.bytes,
-					   &wfd_audbuf.addr, GFP_KERNEL);
+dmach_t pcm_out_dmach;
+struct dma_device_cfg_s *pcm_out_dma_cfg;
 
-	if (!wfd_audbuf.area) {
-		err("WFD_Aud allocate buffer fail");
-	}
-	else {
-		info("*WFD_Aud enable");
-		wfd_audbuf.enable = 1;
-	}
-		
-	memset(wfd_audbuf.area, 0x0, wfd_audbuf.bytes);
-	//info("&wfd_audbuf.addr=0x%x wfd_audbuf.addr=0x%x", &wfd_audbuf.addr, (unsigned int)wfd_audbuf.addr);
-}
-EXPORT_SYMBOL(wmt_pcm_wfd_start);
 
 unsigned int wmt_pcm_wfd_get_buf(void)
 {
+	wfd_audbuf.enable = 1;
 	wfd_audbuf.valuable_sz = 0;
 	wfd_audbuf.wr_ptr = wfd_audbuf.rd_ptr = wfd_audbuf.area;
+	info("WFD_Aud enable");
 	return (unsigned int)&wfd_audbuf.addr;
 }
 EXPORT_SYMBOL(wmt_pcm_wfd_get_buf);
 
 void wmt_pcm_wfd_stop(void)
 {
+	info("WFD_Aud disable");
 	wfd_audbuf.wr_ptr = wfd_audbuf.area;
 	wfd_audbuf.enable = 0;
-
-	dma_free_writecombine(wfd_audbuf.dev, wfd_audbuf.bytes,
-			      wfd_audbuf.area, wfd_audbuf.addr);
-	info("*WFD_Aud disable");
 	return;
 }
 EXPORT_SYMBOL(wmt_pcm_wfd_stop);
@@ -195,6 +189,7 @@ static void audio_process_dma(struct audio_stream_a *s)
 	unsigned int offset;
 	dma_addr_t dma_base;
 	int ret = 0;
+	int stream_id = substream->pstr->stream;
 	
 	//DBG_DETAIL();
 	DPRINTK("s: %d, dmach: %d. active: %d", (int)s, s->dmach, s->active);
@@ -219,11 +214,67 @@ static void audio_process_dma(struct audio_stream_a *s)
 			(unsigned int)runtime->hw_ptr_interrupt, runtime->status->state, (unsigned int)runtime->status->hw_ptr,
 			(unsigned int)runtime->control->appl_ptr, (unsigned int)runtime->control->avail_min);*/
 		//DPRINTK("dmach: %u, dma_addr: %x, dma_size: %u", s->dmach, dma_base+offset, dma_size);
+		//printk(KERN_INFO "offset: %u, dma_addr: %x, dma_size: %u\n", offset, dma_base+offset, dma_size);
 
-		if ((runtime->channels == 2 || runtime->channels == 1) && 
-				(runtime->format == SNDRV_PCM_FORMAT_S16_LE)) {
+#ifdef CONFIG_SND_WMT_SOC_I2S
+		if (!strcmp(wmt_dai_name, "i2s")) {
+			//printk(KERN_ERR  "audio_process_dma: format=0x%x, channels=0x%x \n", runtime->format, runtime->channels);
+
+#ifdef WMT_FMT_TRANS_BY_SW
+			if (stream_id == SNDRV_PCM_STREAM_PLAYBACK) {
+				wmt_sw_u2s(runtime->format, (unsigned char *)runtime->dma_buffer_p->area+offset, dma_size);
+
+				if (((runtime->channels == 1) && (runtime->format == SNDRV_PCM_FORMAT_S16_LE)) ||
+					((runtime->channels == 2) && (runtime->format == SNDRV_PCM_FORMAT_U8))) {
+					wmt_pcm_fmt_trans(runtime->format, runtime->channels,
+						(unsigned char *)runtime->dma_buffer_p->area + offset,
+						(unsigned char *)dump_buf[stream_id].area + (2 * offset),
+						dma_size);
+					ret = wmt_start_dma(s->dmach, dump_buf[stream_id].addr + (2 * offset), 0, (2 * dma_size));
+				}
+				else if ((runtime->channels == 1) && (runtime->format == SNDRV_PCM_FORMAT_U8)) {
+					wmt_pcm_fmt_trans(runtime->format, runtime->channels,
+						(unsigned char *)runtime->dma_buffer_p->area + offset,
+						(unsigned char *)dump_buf[stream_id].area + (4 * offset),
+						dma_size);
+					ret = wmt_start_dma(s->dmach, dump_buf[stream_id].addr + 4 * offset, 0, (4 * dma_size));
+				}
+				else if ((runtime->channels == 2) && (runtime->format == SNDRV_PCM_FORMAT_FLOAT)) {
+					wmt_pcm_fmt_trans(runtime->format, runtime->channels,
+						(unsigned char *)runtime->dma_buffer_p->area + offset,
+						(unsigned char *)dump_buf[stream_id].area + (offset / 2),
+						dma_size);
+					ret = wmt_start_dma(s->dmach, dump_buf[stream_id].addr + (offset / 2), 0, (dma_size / 2));
+				}
+				else if ((runtime->channels == 1) && (runtime->format == SNDRV_PCM_FORMAT_FLOAT)) {
+					wmt_pcm_fmt_trans(runtime->format, runtime->channels,
+						(unsigned char *)runtime->dma_buffer_p->area + offset,
+						(unsigned char *)dump_buf[stream_id].area + offset,
+						dma_size);
+					ret = wmt_start_dma(s->dmach, dump_buf[stream_id].addr + offset, 0, dma_size);
+				}
+			}
+
+			if ((runtime->channels == 2) && (runtime->format == SNDRV_PCM_FORMAT_S16_LE)) {
+				if ((stream_id == SNDRV_PCM_STREAM_PLAYBACK) && (wfd_audbuf.enable)) {
+					wmt_pcm_wfd_update(runtime->dma_buffer_p->area + offset, dma_size);
+				}
+				ret = wmt_start_dma(s->dmach, runtime->dma_addr + offset, 0, dma_size);
+			}
+#else
+			if ((stream_id == SNDRV_PCM_STREAM_PLAYBACK) && (wfd_audbuf.enable)) {
+				wmt_pcm_wfd_update(runtime->dma_buffer_p->area + offset, dma_size);
+			}
+
+			ret = wmt_start_dma(s->dmach, runtime->dma_addr + offset, 0, dma_size);
+#endif
+		}
+#endif
+#ifdef CONFIG_SND_WMT_SOC_AC97
+		if (!strcmp(wmt_dai_name, "ac97")) {
 			ret = wmt_start_dma(s->dmach, runtime->dma_addr + offset, 0, dma_size);
 		}
+#endif
 
 		if (ret) {
 			printk(KERN_ERR  "audio_process_dma: cannot queue DMA buffer (%i) \n", ret);
@@ -243,27 +294,8 @@ static void audio_process_dma(struct audio_stream_a *s)
 static void audio_dma_callback(void *data)
 {
 	struct audio_stream_a *s = data;
-	struct snd_pcm_substream *substream;
-	struct snd_pcm_runtime *runtime;
-	unsigned int dma_size;
-	unsigned int offset;
-	int stream_id;
 	
 	//DBG_DETAIL();
-
-	substream = s->stream;
-	runtime = substream->runtime;
-	dma_size = frames_to_bytes(runtime, runtime->period_size);
-	stream_id = substream->pstr->stream;
-	
-	if (s->period > 0)
-		offset = dma_size * (s->period - 1);
-	else
-		offset = dma_size * (s->periods - 1);
-
-	if ((stream_id == SNDRV_PCM_STREAM_PLAYBACK) && (wfd_audbuf.enable)) {
-		wmt_pcm_wfd_update(runtime->dma_area + offset, dma_size);
-	}
 	
 	/* 
 	 * If we are getting a callback for an active stream then we inform
@@ -298,38 +330,58 @@ static int audio_dma_request(struct audio_stream_a *s, void (*callback) (void *)
 	return err;
 }
 
+/* audio_setup_dma()
+ *
+ * Just a simple funcion to control DMA setting for AC'97 audio
+ */
 static void audio_setup_dma(struct audio_stream_a *s, int stream_id)
 {
+#ifdef CONFIG_SND_WMT_SOC_AC97
 	struct snd_pcm_runtime *runtime = s->stream->runtime;
+#endif
 
-	if (stream_id == SNDRV_PCM_STREAM_PLAYBACK) {
-		/* From memory to device */
-		switch (runtime->channels * runtime->format) {
-		case 1:
-			s->dma_cfg.DefaultCCR = I2S_TX_DMA_8BITS_CFG;     /* setup 1 bytes*/
-			break ;
-		case 2:
-			s->dma_cfg.DefaultCCR = I2S_TX_DMA_16BITS_CFG;    /* setup 2 bytes*/
-			break ;
-		case 4:
-			s->dma_cfg.DefaultCCR = I2S_TX_DMA_32BITS_CFG;    /* setup 4 byte*/
-			break ;
+	DBG_DETAIL();
+
+#ifdef CONFIG_SND_WMT_SOC_I2S
+	if (!strcmp(wmt_dai_name, "i2s")) {
+		if (stream_id == SNDRV_PCM_STREAM_PLAYBACK)
+			s->dma_cfg.DefaultCCR = I2S_TX_DMA_32BITS_CFG  ;
+		else
+			s->dma_cfg.DefaultCCR = I2S_RX_DMA_32BITS_CFG  ;
+	}
+#endif
+#ifdef CONFIG_SND_WMT_SOC_AC97
+	if (!strcmp(wmt_dai_name, "ac97")) {
+		if (stream_id == SNDRV_PCM_STREAM_PLAYBACK) {
+			/* From memory to device */
+			switch (runtime->channels * runtime->format) {
+			case 1:
+				s->dma_cfg.DefaultCCR = AC97_TX_DMA_8BITS_CFG;     /* setup 1 bytes*/
+				break ;
+			case 2:
+				s->dma_cfg.DefaultCCR = AC97_TX_DMA_16BITS_CFG;    /* setup 2 bytes*/
+				break ;
+			case 4:
+				s->dma_cfg.DefaultCCR = AC97_TX_DMA_32BITS_CFG;    /* setup 4 byte*/
+				break ;
+			}
+		}
+		else {
+			/* From device to memory */
+			switch (runtime->channels * runtime->format) {
+			case 1:
+				s->dma_cfg.DefaultCCR = AC97_RX_DMA_8BITS_CFG ;     /* setup 1 bytes*/
+				break ;
+			case 2:
+				s->dma_cfg.DefaultCCR = AC97_RX_DMA_16BITS_CFG ;    /* setup 2 bytes*/
+				break ;
+			case 4:
+				s->dma_cfg.DefaultCCR = AC97_RX_DMA_32BITS_CFG ;    /* setup 4 byte*/
+				break ;
+			}
 		}
 	}
-	else {
-		/* From device to memory */
-		switch (runtime->channels * runtime->format) {
-		case 1:
-			s->dma_cfg.DefaultCCR = I2S_RX_DMA_8BITS_CFG ;     /* setup 1 bytes*/
-			break ;
-		case 2:
-			s->dma_cfg.DefaultCCR = I2S_RX_DMA_16BITS_CFG ;    /* setup 2 bytes*/
-			break ;
-		case 4:
-			s->dma_cfg.DefaultCCR = I2S_RX_DMA_32BITS_CFG ;    /* setup 4 byte*/
-			break ;
-		}
-	}
+#endif
 
 	s->dma_cfg.ChunkSize = 1;
 	if (stream_id == SNDRV_PCM_STREAM_PLAYBACK) {
@@ -344,10 +396,12 @@ static void audio_setup_dma(struct audio_stream_a *s, int stream_id)
 static int audio_dma_free(struct audio_stream_a *s)
 {
 	int err = 0;
+
 	DBG_DETAIL();
+
 	wmt_free_dma(s->dmach);
 	s->dmach = NULL_DMA;
-	pcm_out_dma_cfg = NULL;
+
 	return err;
 }
 
@@ -357,7 +411,9 @@ static int audio_dma_free(struct audio_stream_a *s)
 static void audio_stop_dma(struct audio_stream_a *s)
 {
 	unsigned long flags;
+
 	DBG_DETAIL();
+
 	local_irq_save(flags);
 	s->active = 0;
 	s->period = 0;
@@ -374,7 +430,9 @@ static int wmt_pcm_hw_params(struct snd_pcm_substream *substream,
 {
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	int err = 0;
+
 	DBG_DETAIL();
+
 	snd_pcm_set_runtime_buffer(substream, &substream->dma_buffer);
 	runtime->dma_bytes = params_buffer_bytes(params);
 	return err;
@@ -383,7 +441,9 @@ static int wmt_pcm_hw_params(struct snd_pcm_substream *substream,
 static int wmt_pcm_hw_free(struct snd_pcm_substream *substream)
 {
 	DBG_DETAIL();
+
 	snd_pcm_set_runtime_buffer(substream, NULL);
+
 	return 0;
 }
 
@@ -412,8 +472,9 @@ static int wmt_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 	struct audio_stream_a *s = &prtd[stream_id];
 	int ret = 0;
 
-	DPRINTK("wmt_pcm_trigger Enter, cmd=%d", cmd);
-	
+	DBG_DETAIL();
+	DPRINTK("Enter, cmd=%d", cmd);
+
 	spin_lock(&s->dma_lock);
 	switch (cmd) {
 	case SNDRV_PCM_TRIGGER_START:
@@ -428,6 +489,7 @@ static int wmt_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
 		s->active = 0;
 		audio_stop_dma(s);
+		/*prtd->period_index = -1;*/
 		break;
 	default:
 		ret = -EINVAL;
@@ -445,26 +507,39 @@ static snd_pcm_uframes_t wmt_pcm_pointer(struct snd_pcm_substream *substream)
 	struct audio_stream_a *s = &prtd[stream_id];
 	dma_addr_t ptr;
 	snd_pcm_uframes_t offset = 0;
-	static snd_pcm_uframes_t last_offset = 0;
-	
+
+	//DBG_DETAIL();
+
 	ptr = wmt_get_dma_pos(s->dmach);
 
-	if ((runtime->channels == 1 || runtime->channels == 2) && (runtime->format == SNDRV_PCM_FORMAT_S16_LE)) {
+#ifdef CONFIG_SND_WMT_SOC_I2S
+	if (!strcmp(wmt_dai_name, "i2s")) {
+#ifdef WMT_FMT_TRANS_BY_SW
+		if (((runtime->channels == 1) && (runtime->format == SNDRV_PCM_FORMAT_S16_LE)) ||
+			((runtime->channels == 2) && (runtime->format == SNDRV_PCM_FORMAT_U8))) {
+			offset = bytes_to_frames(runtime, (ptr - dump_buf[stream_id].addr) >> 1);
+		}
+		else if ((runtime->channels == 1) && (runtime->format == SNDRV_PCM_FORMAT_U8)) {
+			offset = bytes_to_frames(runtime, (ptr - dump_buf[stream_id].addr) >> 2);
+		}
+		else if ((runtime->channels == 2) && (runtime->format == SNDRV_PCM_FORMAT_FLOAT)) {
+			offset = bytes_to_frames(runtime, (ptr - dump_buf[stream_id].addr) << 1);
+		}
+		else if ((runtime->channels == 1) && (runtime->format == SNDRV_PCM_FORMAT_FLOAT)) {
+			offset = bytes_to_frames(runtime, ptr - dump_buf[stream_id].addr);
+		}
+		else
+			offset = bytes_to_frames(runtime, ptr - runtime->dma_addr);
+#else
+		offset = bytes_to_frames(runtime, ptr - runtime->dma_addr);
+#endif
+	}
+#endif
+#ifdef CONFIG_SND_WMT_SOC_AC97
+	if (!strcmp(wmt_dai_name, "ac97")) {
 		offset = bytes_to_frames(runtime, ptr - runtime->dma_addr);
 	}
-	
-	if ((offset < last_offset) && ((last_offset - offset) < runtime->period_size) &&
-			(last_offset != runtime->buffer_size)) {
-        snd_pcm_uframes_t old_offset = offset;
-		if (last_offset < runtime->period_size)
-			offset = runtime->period_size;
-		else {
-			offset = runtime->period_size *
-				((last_offset / runtime->period_size) + 1);
-		}
-        printk("last_offset %d, old offset %d, new offset %d\n", (int)last_offset, (int)old_offset, (int)offset);
-	}
-	last_offset = offset;	
+#endif
 
 	if (offset >= runtime->buffer_size)
 		offset = 0;
@@ -506,7 +581,8 @@ static int wmt_pcm_open(struct snd_pcm_substream *substream)
 	snd_soc_set_runtime_hwparams(substream, &wmt_pcm_hardware);
 
 	/* Ensure that buffer size is a multiple of period size */
-	ret = snd_pcm_hw_constraint_integer(runtime, SNDRV_PCM_HW_PARAM_PERIODS);
+	ret = snd_pcm_hw_constraint_integer(runtime,
+					    SNDRV_PCM_HW_PARAM_PERIODS);
 	if (ret < 0)
 		goto out;
 
@@ -544,7 +620,7 @@ static int wmt_pcm_mmap(struct snd_pcm_substream *substream,
 				     runtime->dma_bytes);
 }
 
-static struct snd_pcm_ops wmt_pcm_ops = {
+struct snd_pcm_ops wmt_pcm_ops = {
 	.open		= wmt_pcm_open,
 	.close		= wmt_pcm_close,
 	.ioctl		= snd_pcm_lib_ioctl,
@@ -571,16 +647,26 @@ static int wmt_pcm_preallocate_dma_buffer(struct snd_pcm *pcm,
 	buf->dev.dev = pcm->card->dev;
 	buf->private_data = NULL;
 	buf->area = dma_alloc_writecombine(pcm->card->dev, size,
-					&buf->addr, GFP_KERNEL);
+					   &buf->addr, GFP_KERNEL);
 	
 	if (stream == SNDRV_PCM_STREAM_PLAYBACK) {
-		info("stream = %d, buf_addr = %x", stream, buf->addr);
+#ifdef WMT_FMT_TRANS_BY_SW
+		/* allocate buffer for format transfer */
+		dump_buf[0].area = dma_alloc_writecombine(pcm->card->dev, (4 * size),
+					   &(dump_buf[stream].addr), GFP_KERNEL);
+#endif
 
+		/* allocate buffer for WFD support */
 		wfd_audbuf.bytes = size;
-		wfd_audbuf.dev = pcm->card->dev;
+		wfd_audbuf.area = dma_alloc_writecombine(pcm->card->dev, wfd_audbuf.bytes,
+					   &wfd_audbuf.addr, GFP_KERNEL);
+		memset(wfd_audbuf.area, 0x0, wfd_audbuf.bytes);
+		//info("wmt_pcm_preallocate_dma_buffer");
 		wfd_audbuf.enable = 0;
+		//info("&wfd_audbuf.addr=0x%x wfd_audbuf.addr=0x%x", &wfd_audbuf.addr, (unsigned int)wfd_audbuf.addr);
 	}
 	
+	DPRINTK("buf_area = %x, buf_addr = %x", (unsigned int)buf->area, buf->addr);
 	if (!buf->area)
 		return -ENOMEM;
 
@@ -606,33 +692,43 @@ static void wmt_pcm_free_dma_buffers(struct snd_pcm *pcm)
 		if (!buf->area)
 			continue;
 
-		dma_free_writecombine(pcm->card->dev, buf->bytes, buf->area, buf->addr);
-		
+		dma_free_writecombine(pcm->card->dev, buf->bytes,
+				      buf->area, buf->addr);
+
+#ifdef WMT_FMT_TRANS_BY_SW
+		if (stream == SNDRV_PCM_STREAM_PLAYBACK) {
+			dma_free_writecombine(pcm->card->dev, 4 * buf->bytes,
+				      dump_buf[stream].area, dump_buf[stream].addr);
+		}
+#endif
+
 		buf->area = NULL;
 	}
 }
 
 int wmt_pcm_new(struct snd_soc_pcm_runtime *rtd)
 {
-	struct snd_card *card = rtd->card->snd_card;
-	struct snd_pcm *pcm = rtd->pcm;
-	int ret = 0;
+        struct snd_card *card = rtd->card->snd_card;
+        struct snd_pcm *pcm = rtd->pcm;
+	struct snd_soc_dai *dai = rtd->codec_dai;
 
-	DBG_DETAIL();
+        int ret = 0;
 	
+
 	if (!card->dev->dma_mask)
 		card->dev->dma_mask = &wmt_pcm_dmamask;
+
 	if (!card->dev->coherent_dma_mask)
 		card->dev->coherent_dma_mask = DMA_BIT_MASK(32);
 
-	if (pcm->streams[SNDRV_PCM_STREAM_PLAYBACK].substream) {
+	if (dai->driver->playback.channels_min) {
 		ret = wmt_pcm_preallocate_dma_buffer(pcm,
 			SNDRV_PCM_STREAM_PLAYBACK);
 		if (ret)
 			goto out;
 	}
 
-	if (pcm->streams[SNDRV_PCM_STREAM_CAPTURE].substream) {
+	if (dai->driver->capture.channels_min) {
 		ret = wmt_pcm_preallocate_dma_buffer(pcm,
 			SNDRV_PCM_STREAM_CAPTURE);
 		if (ret)
@@ -640,10 +736,6 @@ int wmt_pcm_new(struct snd_soc_pcm_runtime *rtd)
 	}
 
 out:
-	/* free preallocated buffers in case of error */
-	if (ret)
-		wmt_pcm_free_dma_buffers(pcm);
-	
 	return ret;
 }
 
@@ -694,12 +786,10 @@ static int wmt_pcm_resume(struct snd_soc_dai *dai)
 	DBG_DETAIL();
 	
 	if (!runtime) {
-		if ((pcm_out_dmach != 0xFF) && (pcm_out_dma_cfg != NULL)) {
-			wmt_setup_dma(pcm_out_dmach, *pcm_out_dma_cfg);
-		}
+		wmt_setup_dma(pcm_out_dmach, *pcm_out_dma_cfg);
 		return 0;
 	}
-	
+
 	prtd = runtime->private_data;
 	s = &prtd[SNDRV_PCM_STREAM_PLAYBACK];
 	audio_setup_dma(s, SNDRV_PCM_STREAM_PLAYBACK);
@@ -755,8 +845,23 @@ static struct platform_driver wmt_pcm_driver = {
 	.remove = __devexit_p(wmt_pcm_platform_remove),
 };
 
-module_platform_driver(wmt_pcm_driver);
+static int __init wmt_pcm_platform_init(void)
+{
+	DBG_DETAIL();
+
+	return platform_driver_register(&wmt_pcm_driver);
+}
+module_init(wmt_pcm_platform_init);
+
+static void __exit wmt_pcm_platform_exit(void)
+{
+	DBG_DETAIL();
+
+	platform_driver_unregister(&wmt_pcm_driver);
+}
+module_exit(wmt_pcm_platform_exit);
 
 MODULE_AUTHOR("WonderMedia Technologies, Inc.");
-MODULE_DESCRIPTION("WMT [ALSA SoC/pcm] driver");
+MODULE_DESCRIPTION("WMT [ALSA SoC] driver");
 MODULE_LICENSE("GPL");
+

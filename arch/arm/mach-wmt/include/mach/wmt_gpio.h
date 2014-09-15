@@ -104,6 +104,7 @@ WonderMedia Technologies, Inc.
 #define GPIO_ID_GP24_SF_BYTE_ADDR				(__GPIO_BASE + 0x18  )/* [0x18] */
 #define GPIO_ID_GP26_PCM_BYTE_ADDR       		(__GPIO_BASE + 0x1A  )/* [0x1A] */
 #define GPIO_ID_GP60_USB_BYTE_ADDR				(__GPIO_BASE + 0x3C  )/* [0x3C] */
+#define GPIO_ID_GPIO_27_20_2BYTE_ADDR                   (__GPIO_BASE + 0x30 )
 #define GPIO_ID_GP62_WAKEUP_SUS_BYTE_ADDR		(__GPIO_BASE + 0x3E  )/* [0x3E] */
 #define GPIO_ID_GP63_SD02CD_BYTE_ADDR			(__GPIO_BASE + 0x3F  )/* [0x3F] */
 #define GPIO_CTRL_GP0_BYTE_ADDR 				(__GPIO_BASE + 0x40  )/* [0x40] */
@@ -131,6 +132,7 @@ WonderMedia Technologies, Inc.
 #define GPIO_CTRL_GP24_SF_BYTE_ADDR				(__GPIO_BASE + 0x58  )/* [0x58] */
 #define GPIO_CTRL_GP26_PCM_BYTE_ADDR       		(__GPIO_BASE + 0x5A  )/* [0x5A] */
 #define GPIO_CTRL_GP60_USB_BYTE_ADDR			(__GPIO_BASE + 0x7C  )/* [0x7C] */
+#define GPIO_CTRL_GPIO_23_20_BYTE_ADDR                  (__GPIO_BASE + 0x70 )
 #define GPIO_CTRL_GP62_WAKEUP_SUS_BYTE_ADDR		(__GPIO_BASE + 0x7E  )/* [0x7E] */
 #define GPIO_CTRL_GP63_SD02CD_BYTE_ADDR			(__GPIO_BASE + 0x7F  )/* [0x7F] */
 #define GPIO_OC_GP0_BYTE_ADDR 					(__GPIO_BASE + 0x80  )/* [0x80] */
@@ -158,6 +160,7 @@ WonderMedia Technologies, Inc.
 #define GPIO_OC_GP24_SF_BYTE_ADDR				(__GPIO_BASE + 0x98  )/* [0x98] */
 #define GPIO_OC_GP26_PCM_BYTE_ADDR       		(__GPIO_BASE + 0x9A  )/* [0x9A] */
 #define GPIO_OC_GP60_USB_BYTE_ADDR				(__GPIO_BASE + 0xBC  )/* [0xBC] */
+#define GPIO_OC_GPIO_27_20_2BYTE_ADDR                   (__GPIO_BASE + 0xB0 )
 #define GPIO_OC_GP62_WAKEUP_SUS_BYTE_ADDR		(__GPIO_BASE + 0xBE  )/* [0xBE] */
 #define GPIO_OC_GP63_SD02CD_BYTE_ADDR			(__GPIO_BASE + 0xBF  )/* [0xBF] */
 #define GPIO_OD_GP0_BYTE_ADDR 					(__GPIO_BASE + 0xC0  )/* [0xC0] */
@@ -262,6 +265,7 @@ WonderMedia Technologies, Inc.
 #define PULL_EN_GP23_I2C3_BYTE_ADDR			(__GPIO_BASE + 0x497  )/* [0x497] */
 #define PULL_EN_GP24_SF_BYTE_ADDR			(__GPIO_BASE + 0x498  )/* [0x498] */
 #define PULL_EN_GP26_PCM_BYTE_ADDR			(__GPIO_BASE + 0x49A  )/* [0x49A] */
+#define GPIO_PULL_EN_GPIO_23_20_BYTE_ADDR               (__GPIO_BASE + 0x4B0 )
 #define PULL_EN_GP60_USB_BYTE_ADDR			(__GPIO_BASE + 0x4BC  )/* [0x4BC] */
 #define PULL_EN_GP62_WAKEUP_SUS_BYTE_ADDR	(__GPIO_BASE + 0x4BE  )/* [0x4BE] */
 #define PULL_EN_GP63_SD02_BYTE_ADDR			(__GPIO_BASE + 0x4BF  )/* [0x4BF] */
@@ -290,6 +294,7 @@ WonderMedia Technologies, Inc.
 #define PULL_CTRL_GP24_SF_BYTE_ADDR     	(__GPIO_BASE + 0x4D8  )/* [0x4D8] */
 #define PULL_CTRL_GP26_PCM_BYTE_ADDR		(__GPIO_BASE + 0x4DA  )/* [0x4DA] */
 #define PULL_CTRL_GP27_SD0_BYTE_ADDR		(__GPIO_BASE + 0x4DB  )/* [0x4DB] */
+#define GPIO_PULL_CTRL_GPIO_23_20_BYTE_ADDR     (__GPIO_BASE + 0x4F0 )
 #define PULL_CTRL_GP60_USB_BYTE_ADDR		(__GPIO_BASE + 0x4FC  )/* [0x4FC] */
 #define PULL_CTRL_GP62_WAKEUP_SUS_BYTE_ADDR	(__GPIO_BASE + 0x4FE  )/* [0x4FE] */
 #define PULL_CTRL_GP63_SD02_BYTE_ADDR		(__GPIO_BASE + 0x4FF  )/* [0x4FF] */
@@ -498,6 +503,11 @@ WonderMedia Technologies, Inc.
 #define PULL_EN_GP23_I2C3_BYTE_REG			REG8_PTR(PULL_EN_GP23_I2C3_BYTE_ADDR )
 #define PULL_EN_GP24_SF_BYTE_REG			REG8_PTR(PULL_EN_GP24_SF_BYTE_ADDR )
 #define PULL_EN_GP26_PCM_BYTE_REG			REG8_PTR(PULL_EN_GP26_PCM_BYTE_ADDR )
+#define GPIO_PULL_CTRL_GPIO_23_20_BYTE_VAL              REG8_VAL(GPIO_PULL_CTRL_GPIO_23_20_BYTE_ADDR)
+#define GPIO_PULL_EN_GPIO_23_20_BYTE_VAL                REG8_VAL(GPIO_PULL_EN_GPIO_23_20_BYTE_ADDR)
+#define GPIO_OC_GPIO_27_20_2BYTE_VAL                    REG16_VAL(GPIO_OC_GPIO_27_20_2BYTE_ADDR)
+#define GPIO_CTRL_GPIO_23_20_BYTE_VAL                   REG8_VAL(GPIO_CTRL_GPIO_23_20_BYTE_ADDR)
+#define GPIO_ID_GPIO_27_20_2BYTE_VAL                    REG16_VAL(GPIO_ID_GPIO_27_20_2BYTE_ADDR)
 #define PULL_EN_GP60_USB_BYTE_REG			REG8_PTR(PULL_EN_GP60_USB_BYTE_ADDR )
 #define PULL_EN_GP62_WAKEUP_SUS_BYTE_REG	REG8_PTR(PULL_EN_GP62_WAKEUP_SUS_BYTE_ADDR )
 #define PULL_EN_GP63_SD02_BYTE_REG			REG8_PTR(PULL_EN_GP63_SD02_BYTE_ADDR )
